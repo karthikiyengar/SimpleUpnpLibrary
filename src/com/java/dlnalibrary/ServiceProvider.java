@@ -6,7 +6,10 @@ import java.util.HashMap;
 import org.teleal.cling.UpnpService;
 import org.teleal.cling.UpnpServiceImpl;
 import org.teleal.cling.controlpoint.ActionCallback;
+import org.teleal.cling.controlpoint.SubscriptionCallback;
 import org.teleal.cling.model.action.ActionInvocation;
+import org.teleal.cling.model.gena.CancelReason;
+import org.teleal.cling.model.gena.GENASubscription;
 import org.teleal.cling.model.message.UpnpResponse;
 import org.teleal.cling.model.message.header.STAllHeader;
 import org.teleal.cling.model.message.header.UDADeviceTypeHeader;
@@ -20,14 +23,22 @@ import org.teleal.cling.model.types.UDAServiceId;
 import org.teleal.cling.model.types.UDN;
 import org.teleal.cling.registry.Registry;
 import org.teleal.cling.registry.RegistryListener;
+import org.teleal.cling.support.avtransport.callback.Pause;
 import org.teleal.cling.support.avtransport.callback.Play;
+import org.teleal.cling.support.avtransport.callback.Seek;
 import org.teleal.cling.support.avtransport.callback.SetAVTransportURI;
+import org.teleal.cling.support.avtransport.callback.Stop;
+import org.teleal.cling.support.avtransport.lastchange.AVTransportLastChangeParser;
+import org.teleal.cling.support.avtransport.lastchange.AVTransportVariable;
+import org.teleal.cling.support.lastchange.LastChange;
+import org.teleal.cling.support.model.SeekMode;
 
 public class ServiceProvider {
 	
 	HashMap<String, String> list = new HashMap<String, String>();
 	UpnpService upnpService;	
 	Registry globalRegistry;
+	Service service;
 	
 	public void startDiscovery() {
 	
@@ -113,100 +124,149 @@ public class ServiceProvider {
 		}
 		
 		*/
-		System.out.println(device == null);
+		
 		//Device d = device.findDevice(new UDN("b992bebc-d671-798d-328a-268d984773a3"));
 		
-		Service service = device.findService(new UDAServiceId("AVTransport"));
-        ActionCallback setAVTransportURIAction =
-        		new SetAVTransportURI(service, "http://192.168.1.55:8000/Happy.mp4", "NO METADATA") {
-        
-					@Override
-					public void failure(ActionInvocation arg0,
-							UpnpResponse arg1, String arg2) {
-						// TODO Auto-generated method stub
-						
-					}
-        		};
+		service = device.findService(new UDAServiceId("AVTransport"));
+		System.out.println("Service " + service == null);
+	}
 
-
-        ActionCallback playAction =
-        new Play(service) {
-            @Override
-            public void failure(ActionInvocation invocation, UpnpResponse operation, String defaultMsg) {
-                // Something was wrong
-            }
-        };
-
-        upnpService.getControlPoint().execute(setAVTransportURIAction);
-        upnpService.getControlPoint().execute(playAction);
-		
-	
-        
+	public void sendStream(String url) {
+		  ActionCallback setAVTransportURIAction =
+	        		new SetAVTransportURI(service, url, "NO METADATA") {
+						@Override
+						public void failure(ActionInvocation arg0,
+								UpnpResponse arg1, String arg2) {
+							// TODO Auto-generated method stub
+							
+						}
+	        		};
+	       upnpService.getControlPoint().execute(setAVTransportURIAction);
 	}
 	
-}
+	public void play() {
+		 ActionCallback playAction =
+			        new Play(service) {
+			            @Override
+			            public void failure(ActionInvocation invocation, UpnpResponse operation, String defaultMsg) {
+			                // Something was wrong
+			            }
+			        };
+			        upnpService.getControlPoint().execute(playAction);
+	}
 	
+	public void stop() {
+		 ActionCallback stopAction = new Stop(service) {
+			
+			@Override
+			public void failure(ActionInvocation arg0, UpnpResponse arg1, String arg2) {
+				// TODO Auto-generated method stub
+				
+			}
+		};
+		upnpService.getControlPoint().execute(stopAction);
+	}
 	
+	public void pause() {
+		ActionCallback pauseAction = new Pause(service) {
+			
+			@Override
+			public void failure(ActionInvocation arg0, UpnpResponse arg1, String arg2) {
+				// TODO Auto-generated method stub
+				
+			}
+		};
+		upnpService.getControlPoint().execute(pauseAction);
+	}
 	
-	
-	
-	
-	
-	
-	
-	
-	
-	
-	
-	
-	
-	
-	
-	
-	
-	
-	
-	
-/*	
-	
-	
-	
-	
-	
-	
-	          //Device d = device.findDevice(new UDN("b992bebc-d671-798d-328a-268d984773a3"));
-              //service = d.findService(new UDAServiceId("AVTransport"));
-	          
-	          // This will create necessary network resources for UPnP right away
-	          System.out.println("Starting Cling...");
-	          UpnpService upnpService = new UpnpServiceImpl(listener);
-	          
-	          
-	          
-	          // Send a search message to all devices and services, they should respond soon
-	          upnpService.getControlPoint().search(new STAllHeader());
+	public void subscribeEvents() {
+		System.out.println("In subscribe");
+		SubscriptionCallback callback = new SubscriptionCallback(service, 1000) {
+			
+			@Override
+			protected void failed(GENASubscription arg0, UpnpResponse arg1,
+					Exception arg2, String arg3) {
+				// TODO Auto-generated method stub
+				System.out.println("FAIL HUA!" + arg2.getMessage());
+			}
+			
+			@Override
+			protected void eventsMissed(GENASubscription arg0, int arg1) {
+				// TODO Auto-generated method stub
+				System.out.println("HUAAA!");
+			}
+			
+			@SuppressWarnings("fallthrough")
+			@Override
+			protected void eventReceived(GENASubscription sub) {
+			    try {
+					LastChange lastChange = new LastChange(
+					          new AVTransportLastChangeParser(),
+					          sub.getCurrentValues().get("LastChange").toString()
+					  );
+					
+					
+					System.out.println(lastChange.getEventedValue(0,AVTransportVariable.TransportState.class).getValue());
+				    System.out.println("Duration: "+lastChange.getEventedValue(0, AVTransportVariable.CurrentTrackDuration.class).getValue());
+				    System.out.println("CurrentItem: "+lastChange.getEventedValue(0, AVTransportVariable.CurrentTrack.class).getValue());
+				    System.out.println("Status: "+lastChange.getEventedValue(0, AVTransportVariable.CurrentPlayMode.class).getValue());
+				    System.out.println("Metadata: "+lastChange.getEventedValue(0, AVTransportVariable.CurrentTrackMetaData.class).getValue());
+			    
+			    } catch (Exception e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				}
+			    
+			    
+			}
+			
+			@Override
+			protected void established(GENASubscription arg0) {
+				// TODO Auto-generated method stub
 
-	          
-	          // Let's wait 10 seconds for them to respond
-	          System.out.println("Waiting 10 seconds before shutting down...");
-	          try {
-				Thread.sleep(10000);
-			} catch (InterruptedException e) {
-				// TODO Auto-generated catch block
-				e.printStackTrace();
+			}
+			
+			@Override
+			protected void ended(GENASubscription arg0, CancelReason arg1,
+					UpnpResponse arg2) {
+				// TODO Auto-generated method stub
+				
 			}
 
-	          System.out.print(list.toString());
-	          // Release all resources and advertise BYEBYE to other UPnP devices
-	          System.out.println("Stopping Cling...");
-	          upnpService.shutdown();
-	}
-	/*
-	public void selectDevice(? id) {
-		
+		};
+		upnpService.getControlPoint().execute(callback);
 	}
 	
-	public void selectDevice(? devicename) {
-		
+	public void getDetails() {
+		/*System.out.println(lastChange.getEventedValue(0,AVTransportVariable.TransportState.class).getValue());
+        System.out.println("Duration: "+lastChange.getEventedValue(0, AVTransportVariable.CurrentTrackDuration.class).getValue());
+        System.out.println("CurrentItem: "+lastChange.getEventedValue(0, AVTransportVariable.CurrentTrack.class).getValue());
+        System.out.println("Status: "+lastChange.getEventedValue(0, AVTransportVariable.CurrentPlayMode.class).getValue());
+        System.out.println("Metadata: "+lastChange.getEventedValue(0, AVTransportVariable.CurrentTrackMetaData.class).getValue());*/
 	}
-}*/
+	public void seek(String time) {
+		ActionCallback seekAction = new Seek(service, time) {
+			@Override
+			public void failure(ActionInvocation arg0, UpnpResponse arg1, String arg2) {
+				// TODO Auto-generated method stub
+				System.out.println("FAILED!");
+			}
+		};
+		upnpService.getControlPoint().execute(seekAction);
+	}
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

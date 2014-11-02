@@ -24,9 +24,7 @@ public class MainClass {
 		timer.schedule(new TimerTask() {
 			
 			@Override
-			public void run() {
-				
-				
+			public void run() {				
 				//Retrieve HashMap of devices
 				
 				HashMap<String, String> list = serv.getDevicesHashMap();
@@ -34,9 +32,16 @@ public class MainClass {
 				
 				//Shutdown Discovery
 				//serv.stopDiscovery();
-				serv.selectDevice("");
+				serv.selectDevice("some uuid");
+				serv.subscribeEvents();
+				//serv.getDetails();
+				//serv.sendStream("http://192.168.1.55:8000/01%20-%20Mama%20Kin.mp3");
+				//serv.sendStream("http://192.168.1.55:8000/ABC.mp3");
+				//serv.play();
+				//serv.seek("00:00:20");
+				//serv.stop();
 			}
-		}, 6000);
+		}, 4000);
 		
 		
 	}
