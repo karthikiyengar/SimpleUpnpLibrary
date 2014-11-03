@@ -1,26 +1,15 @@
 package com.java.dlnalibrary;
 
-import java.io.IOException;
-import java.net.HttpURLConnection;
-import java.net.URI;
-import java.net.URL;
-import java.net.URLConnection;
-import java.util.HashMap;
-import java.util.logging.Level;
-import java.util.logging.Logger;
-
 import org.apache.tika.detect.DefaultDetector;
 import org.apache.tika.detect.Detector;
 import org.apache.tika.io.TikaInputStream;
 import org.apache.tika.metadata.Metadata;
 import org.apache.tika.mime.MimeTypes;
+import org.json.JSONObject;
 import org.teleal.cling.UpnpService;
 import org.teleal.cling.UpnpServiceImpl;
 import org.teleal.cling.controlpoint.ActionCallback;
-import org.teleal.cling.controlpoint.SubscriptionCallback;
 import org.teleal.cling.model.action.ActionInvocation;
-import org.teleal.cling.model.gena.CancelReason;
-import org.teleal.cling.model.gena.GENASubscription;
 import org.teleal.cling.model.message.UpnpResponse;
 import org.teleal.cling.model.message.header.STAllHeader;
 import org.teleal.cling.model.meta.Device;
@@ -31,29 +20,27 @@ import org.teleal.cling.model.types.UDAServiceId;
 import org.teleal.cling.model.types.UDN;
 import org.teleal.cling.registry.Registry;
 import org.teleal.cling.registry.RegistryListener;
-import org.teleal.cling.support.avtransport.callback.Pause;
-import org.teleal.cling.support.avtransport.callback.Play;
-import org.teleal.cling.support.avtransport.callback.Seek;
-import org.teleal.cling.support.avtransport.callback.SetAVTransportURI;
-import org.teleal.cling.support.avtransport.callback.Stop;
-import org.teleal.cling.support.avtransport.lastchange.AVTransportLastChangeParser;
-import org.teleal.cling.support.avtransport.lastchange.AVTransportVariable;
+import org.teleal.cling.support.avtransport.callback.*;
 import org.teleal.cling.support.contentdirectory.DIDLParser;
-import org.teleal.cling.support.lastchange.LastChange;
-import org.teleal.cling.support.model.DIDLContent;
-import org.teleal.cling.support.model.PersonWithRole;
-import org.teleal.cling.support.model.Res;
+import org.teleal.cling.support.model.*;
 import org.teleal.cling.support.model.item.MusicTrack;
 import org.teleal.cling.support.model.item.VideoItem;
 import org.teleal.common.util.MimeType;
 
+import java.io.IOException;
+import java.net.HttpURLConnection;
+import java.net.URI;
+import java.net.URL;
+import java.util.HashMap;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
 public class ServiceProvider {
 
+    private static final Logger log = Logger.getLogger(ServiceProvider.class.getName());
     HashMap<String, String> list = new HashMap<String, String>();
     UpnpService upnpService;
     Service service;
-    LastChange lastChange;
-    private static final Logger log = Logger.getLogger(ServiceProvider.class.getName());
 
     public void startDiscovery() {
         /* START REGISTRY LISTENER */
@@ -130,7 +117,6 @@ public class ServiceProvider {
         try {
             Device device = upnpService.getControlPoint().getRegistry().getDevice(new UDN(uid), false); //boolean = false if embedded device
             service = device.findService(new UDAServiceId("AVTransport"));
-            subscribeEvents();
         } catch (Exception e) {
             log.log(Level.SEVERE, "Error: Device not found. Bad UUID format.");
         }
@@ -144,7 +130,7 @@ public class ServiceProvider {
                       @Override
                       public void failure(ActionInvocation arg0,
                                           UpnpResponse arg1, String arg2) {
-                          // TODO Auto-generated method stub
+                          log.log(Level.SEVERE, "Sending media failed");
                       }
                   };
           upnpService.getControlPoint().execute(setAVTransportURIAction);
@@ -153,7 +139,21 @@ public class ServiceProvider {
     public void sendStream(String url, String title, String artist, String album, String duration) {
         String[] type = null;
         String metadata = null;
-		
+        Long contentLength = null;
+
+
+        HttpURLConnection conn = null;
+        try {
+            URL uri = new URL(url);
+            conn = (HttpURLConnection) uri.openConnection();
+            conn.setRequestMethod("HEAD");
+            conn.getInputStream();
+            contentLength = conn.getContentLengthLong();
+        } catch (Exception e) {
+            e.printStackTrace();
+            //log.log(Level.SEVERE, "Couldn't get content length");
+        }
+
 	    TikaInputStream tikaIS = null;
 		try {
 			Detector DETECTOR = new DefaultDetector(
@@ -176,30 +176,28 @@ public class ServiceProvider {
 				e.printStackTrace();
 			}
 		}
-        
-        
-        DIDLContent didl = new DIDLContent();
 
+        DIDLContent didl = new DIDLContent();
+        MimeType mimeType = new MimeType(type[0], type[1]);
+        
+        
         String creator = artist; // Required
         PersonWithRole personRole = new PersonWithRole(creator, "Performer");
         
-        MimeType mimeType = new MimeType(type[0], type[1]);
-        System.out.println("Type: " + type[0] + " Subtype" + type[1]);
         if (type[0].equals("video")) {
-        	didl.addItem(new VideoItem("1","0",title,artist,new Res(mimeType,null,duration,null,url)));
+            didl.addItem(new VideoItem("1", "0", title, artist, new Res(mimeType, contentLength, duration, null, url)));
         }
         if (type[0].equals("audio")) {
         		didl.addItem(new MusicTrack(
                 "1", "0", // 101 is the Item ID, 3 is the parent Container ID
                 title,
                 creator, album, personRole,
-                new Res(mimeType, null, duration, null, url)
+                        new Res(mimeType, contentLength, duration, null, url)
         ));
         }
         try {
 			metadata = new DIDLParser().generate(didl);
 		} catch (Exception e) {
-			// TODO Auto-generated catch block
 			log.log(Level.WARNING, "Could not generate Metadata");
 		}
         
@@ -208,7 +206,7 @@ public class ServiceProvider {
                     @Override
                     public void failure(ActionInvocation arg0,
                                         UpnpResponse arg1, String arg2) {
-                        // TODO Auto-generated method stub
+                        log.log(Level.SEVERE, "Sending media failed");
                     }
                 };
         upnpService.getControlPoint().execute(setAVTransportURIAction);
@@ -250,62 +248,50 @@ public class ServiceProvider {
         upnpService.getControlPoint().execute(pauseAction);
     }
 
-
-    public void subscribeEvents() {
-        SubscriptionCallback callback = new SubscriptionCallback(service, 1000) {
-
-            @Override
-            protected void failed(GENASubscription arg0, UpnpResponse arg1,
-                                  Exception arg2, String arg3) {
-                log.log(Level.WARNING, "GENA Subscription failed!" + arg2.getMessage());
-            }
-
-            @Override
-            protected void eventsMissed(GENASubscription arg0, int arg1) {
-                log.log(Level.INFO, "Event Missed!");
-            }
-
-
-            @Override
-            protected void eventReceived(GENASubscription sub) {
-                try {
-                    lastChange = new LastChange(
-                            new AVTransportLastChangeParser(),
-                            sub.getCurrentValues().get("LastChange").toString()
-                    );
-                } catch (Exception e) {
-                    e.printStackTrace();
-                }
-            }
-
-            @Override
-            protected void established(GENASubscription arg0) {
-                log.log(Level.INFO, "GENA Subscription Established");
-            }
-
-            @Override
-            protected void ended(GENASubscription arg0, CancelReason arg1,
-                                 UpnpResponse arg2) {
-                log.log(Level.INFO, "GENA Subscription Ended");
-            }
-
-        };
-        upnpService.getControlPoint().execute(callback);
-    }
-
-
-    /* getDetails() will cause a NullPointerException exception if called immediately after subscribeEvents() */
-	/* Can use GetMediaInfo()? */
     public void getDetails() {
+        final JSONObject obj = new JSONObject();
         try {
-            System.out.println("Duration: " + lastChange.getEventedValue(0, AVTransportVariable.CurrentTrackDuration.class).getValue());
-            System.out.println("CurrentItem: " + lastChange.getEventedValue(0, AVTransportVariable.CurrentTrackURI.class).getValue());
-            System.out.println("Status: " + lastChange.getEventedValue(0, AVTransportVariable.TransportState.class).getValue());
-            System.out.println("Metadata: " + lastChange.getEventedValue(0, AVTransportVariable.CurrentTrackMetaData.class).getValue());
+            GetTransportInfo gti = new GetTransportInfo(service) {
+                @Override
+                public void received(ActionInvocation actionInvocation, TransportInfo transportInfo) {
+                    obj.put("currentState", transportInfo.getCurrentTransportState());
+                }
+
+                @Override
+                public void failure(ActionInvocation invocation, UpnpResponse operation, String defaultMsg) {
+
+                }
+            };
+            upnpService.getControlPoint().execute(gti);
+            GetPositionInfo gpi = new GetPositionInfo(service) {
+
+                @Override
+                public void failure(ActionInvocation arg0, UpnpResponse arg1, String arg2) {
+                    log.log(Level.SEVERE, "Unable to get position information");
+
+                }
+
+                @Override
+                public void received(ActionInvocation arg0, PositionInfo arg1) {
+
+                    //obj.put("currentStatus", lastChange.getEventedValue(0, AVTransportVariable.TransportState.class).getValue());
+                    obj.put("elapsedSeconds", arg1.getTrackElapsedSeconds());
+                    obj.put("absoluteTime", arg1.getAbsTime());
+                    obj.put("elapsedPercent", arg1.getElapsedPercent());
+                    obj.put("currentTrackURI", arg1.getTrackURI());
+                    obj.put("duration", arg1.getTrackDuration());
+                    obj.put("metadata", arg1.getTrackMetaData());
+                    obj.put("remainingSeconds", arg1.getTrackRemainingSeconds());
+                    System.out.println(obj);
+                }
+            };
+
+            upnpService.getControlPoint().execute(gpi);
 
         } catch (NullPointerException e) {
             System.out.println("None");
         }
+
     }
 
     public void seek(String time) {

@@ -6,5 +6,6 @@
 	<classpathentry exported="true" kind="lib" path="lib/cling-support-1.0.5.jar"/>
 	<classpathentry exported="true" kind="lib" path="lib/teleal-common-1.0.13.jar"/>
 	<classpathentry kind="lib" path="/home/karthik/workspace/DLNALibrary/lib/tika-core-1.6.jar"/>
+	<classpathentry kind="lib" path="/home/karthik/Downloads/xuggle-xuggler-noarch-5.4.jar"/>
 	<classpathentry kind="output" path="bin"/>
 </classpath>
