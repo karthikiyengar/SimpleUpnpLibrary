@@ -1,10 +1,11 @@
-package com.java.dlnalibrary;
+package com.java.simpleupnp;
 
 import org.apache.tika.detect.DefaultDetector;
 import org.apache.tika.detect.Detector;
 import org.apache.tika.io.TikaInputStream;
 import org.apache.tika.metadata.Metadata;
 import org.apache.tika.mime.MimeTypes;
+import org.json.JSONArray;
 import org.json.JSONObject;
 import org.teleal.cling.UpnpService;
 import org.teleal.cling.UpnpServiceImpl;
@@ -32,18 +33,24 @@ import java.net.HttpURLConnection;
 import java.net.URI;
 import java.net.URL;
 import java.util.HashMap;
+import java.util.Hashtable;
+import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-public class ServiceProvider {
+public class UpnpServiceProvider {
 
-    private static final Logger log = Logger.getLogger(ServiceProvider.class.getName());
-    HashMap<String, String> list = new HashMap<String, String>();
-    UpnpService upnpService;
-    Service service;
+    private static final Logger log = Logger.getLogger(UpnpServiceProvider.class.getName());
+    JSONObject list = null;
+    Hashtable <String, String> map = null;
+    UpnpService upnpService = null;
+    Service service = null;
+    JSONArray jsonArray = new JSONArray();
+
+
+    /* RegistryListener asynchronously listens for new devices on the network */
 
     public void startDiscovery() {
-        /* START REGISTRY LISTENER */
 
         RegistryListener listener = new RegistryListener() {
             @Override
@@ -60,58 +67,67 @@ public class ServiceProvider {
 
             @Override
             public void remoteDeviceDiscoveryStarted(Registry registry, RemoteDevice device) {
+                log.log(Level.SEVERE, "Device Discovery Started");
             }
 			
-			/* DISCOVERING REMOTE DEVICE */
 
             @Override
             public void remoteDeviceAdded(Registry registry, RemoteDevice device) {
+
+                /* Create JSON Array of objects */
+
                 log.log(Level.INFO, "Found: " + device.getDisplayString());
-                list.put(device.getIdentity().getUdn().toString(), device.getDisplayString());
+                Map<String, String> map = new HashMap<String, String>();
+                map.put("deviceName", device.getDisplayString());
+                map.put("deviceUUID", device.getIdentity().getUdn().toString().substring(5));
+
+                jsonArray.put(map);
             }
 
             @Override
             public void remoteDeviceRemoved(Registry registry, RemoteDevice device) {
                 log.log(Level.INFO, "Removed: " + device.getDisplayString());
-                list.remove(device.getIdentity().getUdn().toString());
+                list.remove(device.getDisplayString());
             }
 
             @Override
-            public void remoteDeviceDiscoveryFailed(Registry registry, RemoteDevice device,
-                                                    Exception ex) {
-
-            }
-
-            /* SHUTDOWN EVENTS */
-            @Override
-            public void beforeShutdown(Registry registry) {
-                // TODO Auto-generated method stub
-
+            public void remoteDeviceDiscoveryFailed(Registry registry, RemoteDevice device, Exception ex) {
+                log.log(Level.SEVERE, "Device Discovery Failed");
             }
 
             @Override
-            public void afterShutdown() {
+            public void beforeShutdown(Registry registry) {
+                log.log(Level.INFO, "Shutting down!");
             }
+
+            @Override
+            public void afterShutdown() { }
         };
-		
-		
-		/* END REGISTRY LISTENER */
-		
-		/* INVOKING LISTENER */
 
         upnpService = new UpnpServiceImpl(listener);
-        //upnpService.getControlPoint().search(new UDADeviceTypeHeader(new UDADeviceType("AVTransport")));
+
+
+        /* Search for all Upnp Devices */
+
         upnpService.getControlPoint().search(new STAllHeader());
+
+        //Choose only AVTransport Devices
+        //upnpService.getControlPoint().search(new UDADeviceTypeHeader(new UDADeviceType("AVTransport")));
+
+
     }
 
-    public HashMap<String, String> getDeviceList() {
-        return list;
+    public String getDeviceList() {
+        return jsonArray.toString();
     }
 
 
     public void stopDiscovery() {
         upnpService.shutdown();
     }
+
+
+    /* Select device from uuid */
 
     public void selectDevice(String uid) {
         try {
@@ -122,37 +138,45 @@ public class ServiceProvider {
         }
     }
 
-    
-    
+    /* Send media to selected device. Overloaded, with and without metadata parameters */
+
     public void sendStream(String url) {
-    	  ActionCallback setAVTransportURIAction =
-                  new SetAVTransportURI(service, url, "NO METADATA") {
-                      @Override
-                      public void failure(ActionInvocation arg0,
-                                          UpnpResponse arg1, String arg2) {
-                          log.log(Level.SEVERE, "Sending media failed");
-                      }
-                  };
-          upnpService.getControlPoint().execute(setAVTransportURIAction);
+           try {
+               ActionCallback setAVTransportURIAction =
+                       new SetAVTransportURI(service, url, "NO METADATA") {
+                           @Override
+                           public void failure(ActionInvocation arg0,
+                                               UpnpResponse arg1, String arg2) {
+                               log.log(Level.SEVERE, "Sending media failed");
+                           }
+                       };
+               upnpService.getControlPoint().execute(setAVTransportURIAction);
+           }
+           catch (NullPointerException e) {
+               log.log(Level.SEVERE, "Error: Have you selected the device yet?");
+           }
     }
     
     public void sendStream(String url, String title, String artist, String album, String duration) {
+
         String[] type = null;
         String metadata = null;
         Long contentLength = null;
-
-
         HttpURLConnection conn = null;
+
         try {
+            /* Deriving contentLength */
+
             URL uri = new URL(url);
             conn = (HttpURLConnection) uri.openConnection();
             conn.setRequestMethod("HEAD");
             conn.getInputStream();
             contentLength = conn.getContentLengthLong();
         } catch (Exception e) {
-            e.printStackTrace();
-            //log.log(Level.SEVERE, "Couldn't get content length");
+            log.log(Level.SEVERE, "Couldn't get content length");
         }
+
+        /* Using Tika to get MIME Type */
 
 	    TikaInputStream tikaIS = null;
 		try {
@@ -177,6 +201,8 @@ public class ServiceProvider {
 			}
 		}
 
+        /* Setting Track Metadata from parameters and MIME */
+
         DIDLContent didl = new DIDLContent();
         MimeType mimeType = new MimeType(type[0], type[1]);
         
@@ -200,7 +226,10 @@ public class ServiceProvider {
 		} catch (Exception e) {
 			log.log(Level.WARNING, "Could not generate Metadata");
 		}
-        
+
+
+        /* Setting media URI */
+
         ActionCallback setAVTransportURIAction =
                 new SetAVTransportURI(service, url, metadata) {
                     @Override
@@ -212,16 +241,22 @@ public class ServiceProvider {
         upnpService.getControlPoint().execute(setAVTransportURIAction);
     }
 
+    /* Control functions */
 
     public void play() {
-        ActionCallback playAction =
-                new Play(service) {
-                    @Override
-                    public void failure(ActionInvocation invocation, UpnpResponse operation, String defaultMsg) {
-                        // Something was wrong
-                    }
-                };
-        upnpService.getControlPoint().execute(playAction);
+        try {
+            ActionCallback playAction =
+                    new Play(service) {
+                        @Override
+                        public void failure(ActionInvocation invocation, UpnpResponse operation, String defaultMsg) {
+                            // Something was wrong
+                        }
+                    };
+            upnpService.getControlPoint().execute(playAction);
+        }
+        catch (Exception e) {
+            log.log(Level.SEVERE, "Error: Have you selected the device yet?");
+        }
     }
 
     public void stop() {
@@ -247,6 +282,20 @@ public class ServiceProvider {
         };
         upnpService.getControlPoint().execute(pauseAction);
     }
+
+    /* Seek using absolute time */
+
+    public void seek(String time) {
+        ActionCallback seekAction = new Seek(service, time) {
+            @Override
+            public void failure(ActionInvocation arg0, UpnpResponse arg1, String arg2) {
+                log.log(Level.WARNING, "Seek Failed!");
+            }
+        };
+        upnpService.getControlPoint().execute(seekAction);
+    }
+
+    /* Extracting track details */
 
     public void getDetails() {
         final JSONObject obj = new JSONObject();
@@ -289,19 +338,8 @@ public class ServiceProvider {
             upnpService.getControlPoint().execute(gpi);
 
         } catch (NullPointerException e) {
-            System.out.println("None");
+            System.out.println("Null Pointer Exception");
         }
-
-    }
-
-    public void seek(String time) {
-        ActionCallback seekAction = new Seek(service, time) {
-            @Override
-            public void failure(ActionInvocation arg0, UpnpResponse arg1, String arg2) {
-                log.log(Level.WARNING, "Seek Failed!");
-            }
-        };
-        upnpService.getControlPoint().execute(seekAction);
     }
 }
 

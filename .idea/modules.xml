@@ -2,7 +2,7 @@
 <project version="4">
   <component name="ProjectModuleManager">
     <modules>
-      <module fileurl="file://$PROJECT_DIR$/DLNALibrary.iml" filepath="$PROJECT_DIR$/DLNALibrary.iml" />
+      <module fileurl="file://$PROJECT_DIR$/SimpleUpnp.iml" filepath="$PROJECT_DIR$/SimpleUpnp.iml" />
     </modules>
   </component>
 </project>
