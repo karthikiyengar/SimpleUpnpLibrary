@@ -1,9 +1,19 @@
 package com.java.dlnalibrary;
 
+import java.io.IOException;
+import java.net.HttpURLConnection;
+import java.net.URI;
+import java.net.URL;
+import java.net.URLConnection;
 import java.util.HashMap;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import org.apache.tika.detect.DefaultDetector;
+import org.apache.tika.detect.Detector;
+import org.apache.tika.io.TikaInputStream;
+import org.apache.tika.metadata.Metadata;
+import org.apache.tika.mime.MimeTypes;
 import org.teleal.cling.UpnpService;
 import org.teleal.cling.UpnpServiceImpl;
 import org.teleal.cling.controlpoint.ActionCallback;
@@ -34,6 +44,7 @@ import org.teleal.cling.support.model.DIDLContent;
 import org.teleal.cling.support.model.PersonWithRole;
 import org.teleal.cling.support.model.Res;
 import org.teleal.cling.support.model.item.MusicTrack;
+import org.teleal.cling.support.model.item.VideoItem;
 import org.teleal.common.util.MimeType;
 
 public class ServiceProvider {
@@ -125,30 +136,72 @@ public class ServiceProvider {
         }
     }
 
-    public void sendStream(String url, String title, String artist, String album) {
-        String metadata = "";
+    
+    
+    public void sendStream(String url) {
+    	  ActionCallback setAVTransportURIAction =
+                  new SetAVTransportURI(service, url, "NO METADATA") {
+                      @Override
+                      public void failure(ActionInvocation arg0,
+                                          UpnpResponse arg1, String arg2) {
+                          // TODO Auto-generated method stub
+                      }
+                  };
+          upnpService.getControlPoint().execute(setAVTransportURIAction);
+    }
+    
+    public void sendStream(String url, String title, String artist, String album, String duration) {
+        String[] type = null;
+        String metadata = null;
+		
+	    TikaInputStream tikaIS = null;
+		try {
+			Detector DETECTOR = new DefaultDetector(
+			MimeTypes.getDefaultMimeTypes());
+			tikaIS = TikaInputStream.get(new URI(url));
+
+        	Metadata metaDetect = new Metadata();
+        
+        	String contentType = DETECTOR.detect(tikaIS, metaDetect).toString();
+        	type = contentType.split("/");
+		}
+		catch (Exception e) {
+			log.log(Level.SEVERE, "Unable to parse");
+		}
+		finally {
+			try {
+				tikaIS.close();
+			} catch (IOException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
+		}
+        
         
         DIDLContent didl = new DIDLContent();
 
         String creator = artist; // Required
         PersonWithRole personRole = new PersonWithRole(creator, "Performer");
-        MimeType mimeType = new MimeType("audio", "mpeg");
-
-        didl.addItem(new MusicTrack(
+        
+        MimeType mimeType = new MimeType(type[0], type[1]);
+        System.out.println("Type: " + type[0] + " Subtype" + type[1]);
+        if (type[0].equals("video")) {
+        	didl.addItem(new VideoItem("1","0",title,artist,new Res(mimeType,null,duration,null,url)));
+        }
+        if (type[0].equals("audio")) {
+        		didl.addItem(new MusicTrack(
                 "1", "0", // 101 is the Item ID, 3 is the parent Container ID
                 title,
                 creator, album, personRole,
-                new Res(mimeType, 123456l, "00:03:25", 8192l, url)
+                new Res(mimeType, null, duration, null, url)
         ));
-
+        }
         try {
 			metadata = new DIDLParser().generate(didl);
 		} catch (Exception e) {
 			// TODO Auto-generated catch block
-			System.out.println("Could not gen");
+			log.log(Level.WARNING, "Could not generate Metadata");
 		}
-        System.out.println(metadata);
-
         
         ActionCallback setAVTransportURIAction =
                 new SetAVTransportURI(service, url, metadata) {
@@ -158,7 +211,6 @@ public class ServiceProvider {
                         // TODO Auto-generated method stub
                     }
                 };
-        //setAVTransportURIAction.getActionInvocation().setInput("CurrentURI", "WHATEVER!");
         upnpService.getControlPoint().execute(setAVTransportURIAction);
     }
 
